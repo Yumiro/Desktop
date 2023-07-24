@@ -1,10 +1,19 @@
 /*
  * SPDX-License-Identifier: GPL-3.0
- * Vencord Desktop, a desktop app aiming to give you a snappier Discord Experience
+ * Vesktop, a desktop app aiming to give you a snappier Discord Experience
  * Copyright (c) 2023 Vendicated and Vencord contributors
  */
 
-import { app, BrowserWindow, BrowserWindowConstructorOptions, Menu, MenuItemConstructorOptions, Tray } from "electron";
+import {
+    app,
+    BrowserWindow,
+    BrowserWindowConstructorOptions,
+    dialog,
+    Menu,
+    MenuItemConstructorOptions,
+    Tray
+} from "electron";
+import { rm } from "fs/promises";
 import { join } from "path";
 import { IpcEvents } from "shared/IpcEvents";
 import { isTruthy } from "shared/utils/guards";
@@ -14,7 +23,7 @@ import type { SettingsStore } from "shared/utils/SettingsStore";
 import { ICON_PATH } from "../shared/paths";
 import { createAboutWindow } from "./about";
 import { initArRPC } from "./arrpc";
-import { DEFAULT_HEIGHT, DEFAULT_WIDTH, MIN_HEIGHT, MIN_WIDTH, VENCORD_FILES_DIR } from "./constants";
+import { DATA_DIR, DEFAULT_HEIGHT, DEFAULT_WIDTH, MIN_HEIGHT, MIN_WIDTH, VENCORD_FILES_DIR } from "./constants";
 import { Settings, VencordSettings } from "./settings";
 import { createSplashWindow } from "./splash";
 import { makeLinksOpenExternally } from "./utils/makeLinksOpenExternally";
@@ -72,6 +81,12 @@ function initTray(win: BrowserWindow) {
             }
         },
         {
+            label: "Reset Vesktop",
+            async click() {
+                await clearData(win);
+            }
+        },
+        {
             type: "separator"
         },
         {
@@ -82,7 +97,7 @@ function initTray(win: BrowserWindow) {
             }
         },
         {
-            label: "Quit Vencord Desktop",
+            label: "Quit Vesktop",
             click() {
                 isQuitting = true;
                 app.quit();
@@ -91,7 +106,7 @@ function initTray(win: BrowserWindow) {
     ]);
 
     tray = new Tray(ICON_PATH);
-    tray.setToolTip("Vencord Desktop");
+    tray.setToolTip("Vesktop");
     tray.setContextMenu(trayMenu);
     tray.on("click", () => win.show());
 
@@ -104,6 +119,34 @@ function initTray(win: BrowserWindow) {
     });
 }
 
+const enum MessageBoxChoice {
+    Default,
+    Cancel
+}
+
+async function clearData(win: BrowserWindow) {
+    const { response } = await dialog.showMessageBox(win, {
+        message: "Are you sure you want to reset Vesktop?",
+        detail: "This will log you out, clear caches and reset all your settings!\n\nVesktop will automatically restart after this operation.",
+        buttons: ["Yes", "No"],
+        cancelId: MessageBoxChoice.Cancel,
+        defaultId: MessageBoxChoice.Default,
+        type: "warning"
+    });
+
+    if (response === MessageBoxChoice.Cancel) return;
+
+    win.close();
+
+    await win.webContents.session.clearStorageData();
+    await win.webContents.session.clearCache();
+    await win.webContents.session.clearCodeCaches({});
+    await rm(DATA_DIR, { force: true, recursive: true });
+
+    app.relaunch();
+    app.quit();
+}
+
 function initMenuBar(win: BrowserWindow) {
     const isWindows = process.platform === "win32";
     const isDarwin = process.platform === "darwin";
@@ -111,7 +154,7 @@ function initMenuBar(win: BrowserWindow) {
 
     const subMenu = [
         {
-            label: "About Vencord Desktop",
+            label: "About Vesktop",
             click: createAboutWindow
         },
         {
@@ -121,7 +164,14 @@ function initMenuBar(win: BrowserWindow) {
                 app.relaunch();
                 app.quit();
             },
-            toolTip: "Vencord Desktop will automatically restart after this operation"
+            toolTip: "Vesktop will automatically restart after this operation"
+        },
+        {
+            label: "Reset Vesktop",
+            async click() {
+                await clearData(win);
+            },
+            toolTip: "Vesktop will automatically restart after this operation"
         },
         {
             label: "Relaunch",
@@ -148,10 +198,9 @@ function initMenuBar(win: BrowserWindow) {
                 app.quit();
             }
         },
-        {
+        isWindows && {
             label: "Quit",
-            accelerator: isWindows ? "Alt+F4" : void 0,
-            visible: isWindows,
+            accelerator: "Alt+F4",
             role: "quit",
             click() {
                 app.quit();
@@ -168,7 +217,7 @@ function initMenuBar(win: BrowserWindow) {
 
     const menu = Menu.buildFromTemplate([
         {
-            label: "Vencord Desktop",
+            label: "Vesktop",
             role: "appMenu",
             submenu: subMenu.filter(isTruthy)
         },
@@ -290,6 +339,7 @@ function createMainWindow() {
                   backgroundColor: "#ffffff00"
               }
             : {}),
+        ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" } : {}),
         ...getWindowBoundsOptions()
     }));
     win.setMenuBarVisibility(false);
